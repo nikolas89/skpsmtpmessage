@@ -44,8 +44,8 @@ NSString *kSKPSMTPPartContentTransferEncodingKey = @"kSKPSMTPPartContentTransfer
 @interface SKPSMTPMessage ()
 
 @property(nonatomic, retain) NSMutableString *inputString;
-@property(retain) NSTimer *connectTimer;
-@property(retain) NSTimer *watchdogTimer;
+@property(nonatomic, retain) NSTimer *connectTimer;
+@property(nonatomic, retain) NSTimer *watchdogTimer;
 
 - (void)parseBuffer;
 - (BOOL)sendParts;
@@ -59,7 +59,7 @@ NSString *kSKPSMTPPartContentTransferEncodingKey = @"kSKPSMTPPartContentTransfer
 
 @implementation SKPSMTPMessage
 
-@synthesize login, pass, relayHost, relayPorts, subject, fromEmail, toEmail, parts, requiresAuth, inputString, wantsSecure, \
+@synthesize login, pass, relayHost, relayPorts, subject, fromDisplayName, fromEmail, toEmail, parts, requiresAuth, inputString, wantsSecure, \
             delegate, connectTimer, connectTimeout, watchdogTimer, validateSSLChain;
 @synthesize ccEmail;
 @synthesize bccEmail;
@@ -93,12 +93,12 @@ NSString *kSKPSMTPPartContentTransferEncodingKey = @"kSKPSMTPPartContentTransfer
 
 - (void)dealloc
 {
-    NSLog(@"dealloc %@", self);
     self.login = nil;
     self.pass = nil;
     self.relayHost = nil;
     self.relayPorts = nil;
     self.subject = nil;
+    self.fromDisplayName = nil;
     self.fromEmail = nil;
     self.toEmail = nil;
 	self.ccEmail = nil;
@@ -124,6 +124,7 @@ NSString *kSKPSMTPPartContentTransferEncodingKey = @"kSKPSMTPPartContentTransfer
 {
     SKPSMTPMessage *smtpMessageCopy = [[[self class] allocWithZone:zone] init];
     smtpMessageCopy.delegate = self.delegate;
+    smtpMessageCopy.fromDisplayName = self.fromDisplayName;
     smtpMessageCopy.fromEmail = self.fromEmail;
     smtpMessageCopy.login = self.login;
     smtpMessageCopy.parts = [[self.parts copy] autorelease];
@@ -256,14 +257,11 @@ NSString *kSKPSMTPPartContentTransferEncodingKey = @"kSKPSMTPPartContentTransfer
     
     if (![relayPorts count])
     {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [delegate messageFailed:self 
-                              error:[NSError errorWithDomain:@"SKPSMTPMessageError" 
-                                                        code:kSKPSMTPErrorConnectionFailed 
-                                                    userInfo:[NSDictionary dictionaryWithObjectsAndKeys:NSLocalizedString(@"Unable to connect to the server.", @"server connection fail error description"),NSLocalizedDescriptionKey,
-                                                              NSLocalizedString(@"Try sending your message again later.", @"server generic error recovery"),NSLocalizedRecoverySuggestionErrorKey,nil]]];
-
-        });
+        [delegate messageFailed:self 
+                          error:[NSError errorWithDomain:@"SKPSMTPMessageError" 
+                                                    code:kSKPSMTPErrorConnectionFailed 
+                                                userInfo:[NSDictionary dictionaryWithObjectsAndKeys:NSLocalizedString(@"Unable to connect to the server.", @"server connection fail error description"),NSLocalizedDescriptionKey,
+                                                          NSLocalizedString(@"Try sending your message again later.", @"server generic error recovery"),NSLocalizedRecoverySuggestionErrorKey,nil]]];
         
         return NO;
     }
@@ -276,10 +274,12 @@ NSString *kSKPSMTPPartContentTransferEncodingKey = @"kSKPSMTPPartContentTransfer
     
     NSLog(@"C: Attempting to connect to server at: %@:%d", relayHost, relayPort);
     
+    self.connectTimer = [NSTimer scheduledTimerWithTimeInterval:connectTimeout
+                                                         target:self
+                                                       selector:@selector(connectionConnectedCheck:)
+                                                       userInfo:nil 
+                                                        repeats:NO];
     
-    self.connectTimer = [NSTimer timerWithTimeInterval:connectTimeout target:self selector:@selector(connectionConnectedCheck:) userInfo:nil repeats:NO];
-    [[NSRunLoop mainRunLoop] addTimer:self.connectTimer forMode:NSDefaultRunLoopMode];
-
     [NSStream getStreamsToHostNamed:relayHost port:relayPort inputStream:&inputStream outputStream:&outputStream];
     if ((inputStream != nil) && (outputStream != nil))
     {
@@ -292,8 +292,10 @@ NSString *kSKPSMTPPartContentTransferEncodingKey = @"kSKPSMTPPartContentTransfer
         [inputStream setDelegate:self];
         [outputStream setDelegate:self];
         
-        [inputStream scheduleInRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
-        [outputStream scheduleInRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
+        [inputStream scheduleInRunLoop:[NSRunLoop currentRunLoop]
+                               forMode:NSRunLoopCommonModes];
+        [outputStream scheduleInRunLoop:[NSRunLoop currentRunLoop]
+                                forMode:NSRunLoopCommonModes];
         [inputStream open];
         [outputStream open];
         
@@ -848,8 +850,14 @@ NSString *kSKPSMTPPartContentTransferEncodingKey = @"kSKPSMTPPartContentTransfer
     [dateFormatter release];
     [uuid release];
     
-    [message appendFormat:@"From:%@\r\n", fromEmail];
-	
+    if (self.fromDisplayName)
+    {
+        [message appendFormat:@"From:%@ <%@>\r\n", fromDisplayName, fromEmail];
+    }
+    else
+    {
+        [message appendFormat:@"From:%@\r\n", fromEmail];
+    }
     
 	if ((self.toEmail != nil) && (![self.toEmail isEqualToString:@""])) 
     {
@@ -866,7 +874,7 @@ NSString *kSKPSMTPPartContentTransferEncodingKey = @"kSKPSMTPPartContentTransfer
     [message appendFormat:@"Subject:%@\r\n\r\n",subject];
     [message appendString:separatorString];
     
-    NSData *messageData = [message dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:YES];
+    NSData *messageData = [message dataUsingEncoding:NSASCIIStringEncoding allowLossyConversion:YES];
     [message release];
     
     NSLog(@"C: %s", [messageData bytes]);

@@ -126,6 +126,7 @@ extern NSString *kSKPSMTPPartContentTransferEncodingKey;
 @property(nonatomic, assign) BOOL validateSSLChain;
 
 @property(nonatomic, retain) NSString *subject;
+@property(nonatomic, retain) NSString *fromDisplayName;
 @property(nonatomic, retain) NSString *fromEmail;
 @property(nonatomic, retain) NSString *toEmail;
 @property(nonatomic, retain) NSString *ccEmail;
